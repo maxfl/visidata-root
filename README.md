@@ -1,5 +1,5 @@
 # visidata-uproot
-visidata loader for root files, based on uproot
+[visidata](https://www.visidata.org) loader for [root](https://root.cern.ch) files, based on [uproot](https://github.com/scikit-hep/uproot5)
 
 ## Features
 
