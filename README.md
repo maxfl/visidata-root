@@ -10,10 +10,19 @@
   - [x] TH1
     - [x] edges, heitghts
     - [x] errors, variance, counts
-  - [ ] TH2
+  - [x] TH2
   - [ ] TH3
 - [ ] TTree
   - [x] simple ntuples
+- [x] TGraph
+  - [x] TGraph
+  - [x] TGraphErrors
+  - [x] TGraphAsymmErrors
+
+## TODO
+
+- Option to read underflow/overflow
+- Bins for TH2
 
 ## Usage
 
