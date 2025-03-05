@@ -5,12 +5,12 @@ from visidata import (
     Path,
     Progress,
     PyobjSheet,
-    SequenceSheet,
     Sheet,
     VisiData,
     anytype,
     vd,
 )
+from itertools import chain
 
 
 @VisiData.api
@@ -29,6 +29,7 @@ VisiData.open_root = VisiData.open_root
 
 class ROOTSheet(Sheet):
     "Support sheets in ROOT format."
+
     _colum_names = None
 
     def iterload(self):
@@ -68,6 +69,36 @@ class ROOTSheet(Sheet):
                 self._colum_names.append(name)
             self.recalc()
             yield from Progress(zip(*arrays.values()), total=size)
+        elif isinstance(source, uproot.behaviors.TH2.TH2):
+            flow = True
+            heights, edges_x, edges_y = source.to_numpy(flow=flow)
+            type_str = _get_type(heights.dtype)
+
+            nrows = heights.shape[0]
+            ncols = heights.shape[1]
+
+            def rowname(i):
+                if i==0:
+                    return 'x-'
+                elif i==nrows-1:
+                    return 'x+'
+
+                return f'y_{i-1}'
+
+            self.addColumn(ItemColumn("x", 0, width=8, keycol=1), index=0)
+            for i in range(ncols):
+                if i==0:
+                    yname = 'y-'
+                elif i==ncols-1:
+                    yname = 'y+'
+                else:
+                    yname = f'y_{i-1}'
+                self.addColumn(ItemColumn(yname, i+1, type=type_str, width=8), index=i+1)
+            self.recalc()
+            yield from Progress(
+                (list(chain((name,), hrow)) for name, hrow in zip(map(rowname, range(nrows)), heights)),
+                total=nrows
+            )
         elif isinstance(source, uproot.behaviors.TH1.TH1):
             flow = True
             heights, edges = source.to_numpy(flow=flow)
@@ -93,6 +124,36 @@ class ROOTSheet(Sheet):
                 self.addColumn(ItemColumn(name, i, type=type_str, width=8), index=i)
             self.recalc()
             yield from Progress(zip(*arrays.values()), total=len(heights))
+
+        elif isinstance(
+            source,
+            (
+                uproot.behaviors.TGraph.TGraph,
+                uproot.behaviors.TGraphErrors.TGraphErrors,
+                uproot.behaviors.TGraphAsymmErrors.TGraphAsymmErrors,
+            ),
+        ):
+            npoints = source.all_members["fNpoints"]
+            arrays = {
+                "x": source.all_members["fX"],
+                "y": source.all_members["fY"],
+            }
+            if isinstance(source, uproot.behaviors.TGraphErrors.TGraphErrors):
+                arrays["ex"] = source.all_members["fEX"]
+                arrays["ey"] = source.all_members["fEY"]
+            elif isinstance(
+                source, uproot.behaviors.TGraphAsymmErrors.TGraphAsymmErrors
+            ):
+                arrays["ex_low"] = source.all_members["fEXlow"]
+                arrays["ex_high"] = source.all_members["fEXhigh"]
+                arrays["ey_low"] = source.all_members["fEYlow"]
+                arrays["ey_high"] = source.all_members["fEYhigh"]
+
+            for i, (name, array) in enumerate(arrays.items()):
+                type_str = _get_type(array.dtype)
+                self.addColumn(ItemColumn(name, i, type=type_str, width=8), index=i)
+            self.recalc()
+            yield from Progress(zip(*arrays.values()), total=npoints)
         else:
             self._colum_names = None
             vd.fail("unknown root object type %s" % type(source))
@@ -124,18 +185,7 @@ def _get_type(dt) -> type:
 
 
 def _get_source_name(col, row) -> str:
-    try:
-        return row.source.name
-    except AttributeError:
-        pass
-
-    try:
-        return row.source.path[-1]
-    except AttributeError:
-        pass
-
-    return "???"
-
+    return row.names[-1]
 
 def _get_source_nitems(col, row):
     source = row.source
@@ -143,8 +193,19 @@ def _get_source_nitems(col, row):
 
     if isinstance(source, uproot.behaviors.TTree.TTree):
         return source.member("fEntries")
+    elif isinstance(source, uproot.behaviors.TH2.TH2):
+        return source.axes[0].member("fNbins")
     elif isinstance(source, uproot.behaviors.TH1.TH1):
         return source.axes[0].member("fNbins")
+    elif isinstance(
+        source,
+        (
+            uproot.behaviors.TGraph.TGraph,
+            uproot.behaviors.TGraphErrors.TGraphErrors,
+            uproot.behaviors.TGraphAsymmErrors.TGraphAsymmErrors,
+        ),
+    ):
+        return source.all_members["fNpoints"]
 
     return len(source)
 
