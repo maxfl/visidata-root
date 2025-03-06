@@ -38,6 +38,8 @@ class ROOTSheet(Sheet):
     _colum_names = None
 
     def iterload(self):
+        np = vd.importExternal("numpy")
+
         uproot = vd.importExternal("uproot")
         source = self.source
         if isinstance(self.source, Path):
@@ -70,7 +72,7 @@ class ROOTSheet(Sheet):
                         uproot.behaviors.TGraphErrors.TGraphErrors,
                         uproot.behaviors.TGraphAsymmErrors.TGraphAsymmErrors,
                     ),
-                ):
+                ) or type(v).__name__.startswith("Model_TMatrixT"):
                     yield ROOTSheet(self.name, k, source=v)
                 else:
                     members = v.all_members
@@ -97,21 +99,26 @@ class ROOTSheet(Sheet):
             ncols = heights.shape[1]
 
             def rowname(i):
-                if i == 0:
-                    return "x-"
-                elif i == nrows - 1:
-                    return "x+"
+                if flow:
+                    if i == 0:
+                        return "x-"
+                    elif i == nrows - 1:
+                        return "x+"
+                    return f"x_{i-1}"
 
-                return f"y_{i-1}"
+                return f"x_{i}"
 
             self.addColumn(ItemColumn("x", 0, width=8, keycol=1), index=0)
             for i in range(ncols):
-                if i == 0:
-                    yname = "y-"
-                elif i == ncols - 1:
-                    yname = "y+"
+                if flow:
+                    if i == 0:
+                        yname = "y-"
+                    elif i == ncols - 1:
+                        yname = "y+"
+                    else:
+                        yname = f"y_{i-1}"
                 else:
-                    yname = f"y_{i-1}"
+                    yname = f"y_{i}"
                 self.addColumn(
                     ItemColumn(yname, i + 1, type=type_str, width=8), index=i + 1
                 )
@@ -124,12 +131,13 @@ class ROOTSheet(Sheet):
                 total=nrows,
             )
         elif isinstance(source, uproot.behaviors.TH1.TH1):
-            flow = self.options.get("root_th1_flow")
+            flow = bool(self.options.get("root_th1_flow"))
             heights, edges = source.to_numpy(flow=flow)
             left = edges[:-1]
             right = edges[1:]
 
             arrays = {
+                "bin": np.arange(len(heights)+2*int(flow)),
                 "left": left,
                 "right": right,
                 "center": 0.5 * (left + right),
@@ -145,10 +153,9 @@ class ROOTSheet(Sheet):
 
             for i, (name, array) in enumerate(arrays.items()):
                 type_str = _get_type(array.dtype)
-                self.addColumn(ItemColumn(name, i, type=type_str, width=8), index=i)
+                self.addColumn(ItemColumn(name, i, type=type_str, width=(8 if i else 4), keycol=(i==0)), index=i)
             self.recalc()
             yield from Progress(zip(*arrays.values()), total=len(heights))
-
         elif isinstance(
             source,
             (
@@ -159,6 +166,7 @@ class ROOTSheet(Sheet):
         ):
             npoints = source.all_members["fNpoints"]
             arrays = {
+                "i": np.arange(npoints),
                 "x": source.all_members["fX"],
                 "y": source.all_members["fY"],
             }
@@ -175,9 +183,33 @@ class ROOTSheet(Sheet):
 
             for i, (name, array) in enumerate(arrays.items()):
                 type_str = _get_type(array.dtype)
-                self.addColumn(ItemColumn(name, i, type=type_str, width=8), index=i)
+                self.addColumn(ItemColumn(name, i, type=type_str, width=(8 if i else 4), keycol=(i==0)), index=i)
             self.recalc()
             yield from Progress(zip(*arrays.values()), total=npoints)
+        elif type(source).__name__.startswith("Model_TMatrixT"):
+
+            nrows = source.all_members["fNrows"]
+            ncols = source.all_members["fNcols"]
+
+            matrix = source.all_members["fElements"].reshape(nrows, ncols)
+            type_str = _get_type(matrix.dtype)
+
+            def rowname(i):
+                return f"row_{i}"
+
+            self.addColumn(ItemColumn("row", 0, width=8, keycol=1), index=0)
+            for i in range(ncols):
+                self.addColumn(
+                    ItemColumn(f"col_{i}", i + 1, type=type_str, width=8), index=i + 1
+                )
+            self.recalc()
+            yield from Progress(
+                (
+                    list(chain((name,), mrow))
+                    for name, mrow in zip(map(rowname, range(nrows)), matrix)
+                ),
+                total=nrows,
+            )
         else:
             self._colum_names = None
             vd.fail("unknown root object type %s" % type(source))
@@ -230,6 +262,8 @@ def _get_source_nitems(col, row):
         ),
     ):
         return source.all_members["fNpoints"]
+    elif type(source).__name__.startswith("Model_TMatrixT"):
+        return source.all_members["fNrows"]
 
     return len(source)
 

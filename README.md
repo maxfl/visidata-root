@@ -13,16 +13,14 @@
   - [x] TH2: matrix
 - [ ] TTree
   - [x] simple ntuples
+  - [ ] more complex types?
 - [x] TGraph
   - [x] TGraph
   - [x] TGraphErrors
   - [x] TGraphAsymmErrors
+- [x] TMatrixT
 - [x] Other object:
     - [x] members dict
-
-## TODO
-
-- Row numbers
 
 ## Usage
 
