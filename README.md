@@ -6,23 +6,23 @@
 - [x] ROOT files
   - [x] subdirectoreis
   - [x] count of objects
-- [ ] TH
+- [x] TH
   - [x] TH1
     - [x] edges, heitghts
     - [x] errors, variance, counts
-  - [x] TH2
-  - [ ] TH3
+  - [x] TH2: matrix
 - [ ] TTree
   - [x] simple ntuples
 - [x] TGraph
   - [x] TGraph
   - [x] TGraphErrors
   - [x] TGraphAsymmErrors
+- [x] Other object:
+    - [x] members dict
 
 ## TODO
 
-- Option to read underflow/overflow
-- Bins for TH2
+- Row numbers
 
 ## Usage
 

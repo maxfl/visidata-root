@@ -1,3 +1,5 @@
+from itertools import chain
+
 from visidata import (
     BaseSheet,
     Column,
@@ -6,11 +8,14 @@ from visidata import (
     Progress,
     PyobjSheet,
     Sheet,
+    SheetDict,
     VisiData,
     anytype,
     vd,
 )
-from itertools import chain
+
+vd.option("root_th1_flow", False, "read undrflow/overflow for TH1")
+vd.option("root_th2_flow", False, "read undrflow/overflow for TH1")
 
 
 @VisiData.api
@@ -50,14 +55,28 @@ class ROOTSheet(Sheet):
                     getter=_get_source_name,
                     keycol=1,
                 ),
-                Column(
-                    "type", type=str, getter=lambda col, row: type(row.source).__name__
-                ),
+                Column("type", type=str, getter=_get_source_type),
                 Column("nItems", type=int, getter=_get_source_nitems),
             ]
             self.recalc()
             for k, v in source.iteritems(recursive=False):
-                yield ROOTSheet(self.name, k, source=v)
+                if isinstance(
+                    v,
+                    (
+                        uproot.behaviors.TTree.TTree,
+                        uproot.behaviors.TH2.TH2,
+                        uproot.behaviors.TH1.TH1,
+                        uproot.behaviors.TGraph.TGraph,
+                        uproot.behaviors.TGraphErrors.TGraphErrors,
+                        uproot.behaviors.TGraphAsymmErrors.TGraphAsymmErrors,
+                    ),
+                ):
+                    yield ROOTSheet(self.name, k, source=v)
+                else:
+                    members = v.all_members
+                    yield PyobjSheet(
+                        self.name, k, source=dict(type=type(v).__name__, **members)
+                    )
             self._colum_names = None
         elif isinstance(source, uproot.behaviors.TTree.TTree):
             arrays = source.arrays(library="np")
@@ -70,7 +89,7 @@ class ROOTSheet(Sheet):
             self.recalc()
             yield from Progress(zip(*arrays.values()), total=size)
         elif isinstance(source, uproot.behaviors.TH2.TH2):
-            flow = True
+            flow = self.options.get("root_th2_flow")
             heights, edges_x, edges_y = source.to_numpy(flow=flow)
             type_str = _get_type(heights.dtype)
 
@@ -78,29 +97,34 @@ class ROOTSheet(Sheet):
             ncols = heights.shape[1]
 
             def rowname(i):
-                if i==0:
-                    return 'x-'
-                elif i==nrows-1:
-                    return 'x+'
+                if i == 0:
+                    return "x-"
+                elif i == nrows - 1:
+                    return "x+"
 
-                return f'y_{i-1}'
+                return f"y_{i-1}"
 
             self.addColumn(ItemColumn("x", 0, width=8, keycol=1), index=0)
             for i in range(ncols):
-                if i==0:
-                    yname = 'y-'
-                elif i==ncols-1:
-                    yname = 'y+'
+                if i == 0:
+                    yname = "y-"
+                elif i == ncols - 1:
+                    yname = "y+"
                 else:
-                    yname = f'y_{i-1}'
-                self.addColumn(ItemColumn(yname, i+1, type=type_str, width=8), index=i+1)
+                    yname = f"y_{i-1}"
+                self.addColumn(
+                    ItemColumn(yname, i + 1, type=type_str, width=8), index=i + 1
+                )
             self.recalc()
             yield from Progress(
-                (list(chain((name,), hrow)) for name, hrow in zip(map(rowname, range(nrows)), heights)),
-                total=nrows
+                (
+                    list(chain((name,), hrow))
+                    for name, hrow in zip(map(rowname, range(nrows)), heights)
+                ),
+                total=nrows,
             )
         elif isinstance(source, uproot.behaviors.TH1.TH1):
-            flow = True
+            flow = self.options.get("root_th1_flow")
             heights, edges = source.to_numpy(flow=flow)
             left = edges[:-1]
             right = edges[1:]
@@ -162,15 +186,6 @@ class ROOTSheet(Sheet):
         if isinstance(row, BaseSheet):
             return row
 
-        # from .npy import NpySheet
-        from visidata.loaders.npy import NpySheet
-
-        if isinstance(row, tuple):
-            if self._colum_names is not None:
-                return PyobjSheet("test", source=dict(zip(self._colum_names, row)))
-            else:
-                return PyobjSheet("test", source=row)
-
         vd.fail(f"unimplemented openRow type {type(row).__name__}, {row}")
 
 
@@ -184,8 +199,17 @@ def _get_type(dt) -> type:
     return anytype
 
 
+def _get_source_type(col, row):
+    match row:
+        case SheetDict():
+            return row.source["type"]
+
+    return type(row.source).__name__
+
+
 def _get_source_name(col, row) -> str:
     return row.names[-1]
+
 
 def _get_source_nitems(col, row):
     source = row.source
